@@ -5,12 +5,11 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from flask_cors import CORS
 
-
 load_dotenv()
-
 
 app = Flask(__name__)
 CORS(app)  # Enables CORS for all routes
+
 
 def levenshtein_distance(s1, s2):
     if len(s1) < len(s2):
@@ -92,7 +91,6 @@ def process_long_text(long_text, api_key, vocabulary):
     """
     Splits long text while maintaining sentence structure and converts each part separately.
     """
-    # Split text into sentences for more accurate processing
     sentences = re.split(
         r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', long_text)
     sign_grammars = []
@@ -140,5 +138,4 @@ def translate_text():
 
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0',
-            port=int(os.environ.get('PORT', 8080)))
+    app.run(debug=False, host='0.0.0.0', port=8080)
