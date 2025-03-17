@@ -3,11 +3,14 @@ import re
 import os
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+from flask_cors import CORS
+
 
 load_dotenv()
 
-app = Flask(__name__)
 
+app = Flask(__name__)
+CORS(app)  # Enables CORS for all routes
 
 def levenshtein_distance(s1, s2):
     if len(s1) < len(s2):
