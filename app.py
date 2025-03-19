@@ -107,6 +107,7 @@ def process_long_text(long_text, api_key, vocabulary):
 
 @app.route('/translate', methods=['POST'])
 def translate_text():
+    print("Received request method:", request.method)
     data = request.get_json()
     if not data or 'text' not in data:
         return jsonify({'error': 'Missing text in request'}), 400
