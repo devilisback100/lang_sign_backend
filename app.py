@@ -140,9 +140,12 @@ def translate_text():
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'}), 200
-@app.route('/', methods=['GET'])
-def hello():
-    return "hellow world"
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204  # No Content
+
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8080))  # Use Railway’s assigned port
