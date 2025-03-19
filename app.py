@@ -33,9 +33,15 @@ def resize_frame(frame):
 def create_video_from_asl(text, fingerspell_words):
     frames = []
     words = text.split()
+    max_frames = 1000  # Limit total frames to prevent memory issues
+    current_frames = 0
 
     for word in words:
         try:
+            if current_frames >= max_frames:
+                print("Max frames limit reached")
+                break
+
             if word in fingerspell_words:
                 # Fingerspell the word
                 for letter in word.lower():
@@ -44,20 +50,23 @@ def create_video_from_asl(text, fingerspell_words):
                     if response.status_code == 200:
                         gif = imageio.get_reader(response.content, '.gif')
                         letter_frames = [resize_frame(frame) for frame in gif]
-                        for frame in letter_frames:
-                            frames.extend([frame] * 4)
-                        # Pause between letters
-                        frames.extend([frames[-1]] * 6)
+                        # Reduce frame duplication for memory efficiency
+                        frames.extend(letter_frames)
+                        current_frames += len(letter_frames)
+                        if current_frames < max_frames:
+                            frames.extend([letter_frames[-1]] * 3)  # Shorter pause
+                            current_frames += 3
             else:
-                # Regular word sign
                 response = requests.get(
                     f"{GIF_BASE_URL}/{word.lower()}.gif", stream=True)
                 if response.status_code == 200:
                     gif = imageio.get_reader(response.content, '.gif')
                     word_frames = [resize_frame(frame) for frame in gif]
-                    for frame in word_frames:
-                        frames.extend([frame] * 3)
-                    frames.extend([frames[-1]] * 10)  # Pause between words
+                    frames.extend(word_frames)
+                    current_frames += len(word_frames)
+                    if current_frames < max_frames:
+                        frames.extend([word_frames[-1]] * 5)  # Shorter pause
+                        current_frames += 5
         except Exception as e:
             print(f"Error processing {word}: {e}")
             continue
@@ -66,15 +75,20 @@ def create_video_from_asl(text, fingerspell_words):
         return None
 
     try:
-        # Create bytes buffer instead of saving to file
         buffer = io.BytesIO()
+        # Lower video quality for smaller size
         writer = imageio.get_writer(
-            buffer, format='mp4', fps=10, codec='libx264',
-            pixelformat='yuv420p', bitrate='8M'
+            buffer, format='mp4', fps=8,  # Reduced FPS
+            codec='libx264', pixelformat='yuv420p',
+            bitrate='2M',  # Reduced bitrate
+            macro_block_size=None
         )
 
         for frame in frames:
-            writer.append_data(frame)
+            # Reduce frame size
+            small_frame = Image.fromarray(frame).resize(
+                (320, 240), Image.Resampling.LANCZOS)
+            writer.append_data(np.array(small_frame))
 
         writer.close()
         buffer.seek(0)
@@ -282,27 +296,24 @@ def translate_text():
 
     # Generate video and return as stream
     video_buffer = create_video_from_asl(validated, fingerspell)
-
-    response = {
-        'original': text,
-        'translation': validated,
-        'fingerspell': fingerspell,
-        'status': 'success'
-    }
-
+    
     if video_buffer:
-        response = send_file(
-            video_buffer,
-            mimetype='video/mp4',
-            as_attachment=True,
-            download_name=f"sign_{int(time.time())}.mp4"
-        )
-        # Add custom headers and ensure they are exposed
-        response.headers['Access-Control-Expose-Headers'] = 'X-Original-Text, X-ASL-Translation, X-Fingerspell-Words'
-        response.headers['X-Original-Text'] = text
-        response.headers['X-ASL-Translation'] = validated
-        response.headers['X-Fingerspell-Words'] = ','.join(fingerspell)
-        return response
+        try:
+            response = send_file(
+                video_buffer,
+                mimetype='video/mp4',
+                as_attachment=True,
+                download_name=f"sign_{int(time.time())}.mp4"
+            )
+            response.headers['Access-Control-Expose-Headers'] = 'X-Original-Text, X-ASL-Translation, X-Fingerspell-Words'
+            response.headers['X-Original-Text'] = text
+            response.headers['X-ASL-Translation'] = validated
+            response.headers['X-Fingerspell-Words'] = ','.join(fingerspell)
+            return response
+        except Exception as e:
+            print(f"Error sending video: {e}")
+            # Fallback to JSON response if video fails
+            return jsonify(response)
 
     return jsonify(response)
 
