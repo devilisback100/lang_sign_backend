@@ -2,102 +2,16 @@ import google.generativeai as genai
 import re
 import os
 import json
-import imageio
-import numpy as np
-from PIL import Image
-import requests
-import time
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from flask_cors import CORS
-import io
+
+
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, expose_headers=['X-Original-Text', 'X-ASL-Translation', 'X-Fingerspell-Words'])
-
-
-TARGET_HEIGHT = 480
-GIF_BASE_URL = os.getenv('GIF_BASE_URL')  # Get from .env
-
-
-def resize_frame(frame):
-    img = Image.fromarray(frame)
-    aspect_ratio = img.width / img.height
-    new_width = int(TARGET_HEIGHT * aspect_ratio)
-    resized = img.resize((new_width, TARGET_HEIGHT), Image.Resampling.LANCZOS)
-    return np.array(resized)
-
-
-def create_video_from_asl(text, fingerspell_words):
-    frames = []
-    words = text.split()
-    max_frames = 1000  # Limit total frames to prevent memory issues
-    current_frames = 0
-
-    for word in words:
-        try:
-            if current_frames >= max_frames:
-                print("Max frames limit reached")
-                break
-
-            if word in fingerspell_words:
-                # Fingerspell the word
-                for letter in word.lower():
-                    response = requests.get(
-                        f"{GIF_BASE_URL}/{letter}.gif", stream=True)
-                    if response.status_code == 200:
-                        gif = imageio.get_reader(response.content, '.gif')
-                        letter_frames = [resize_frame(frame) for frame in gif]
-                        # Reduce frame duplication for memory efficiency
-                        frames.extend(letter_frames)
-                        current_frames += len(letter_frames)
-                        if current_frames < max_frames:
-                            frames.extend([letter_frames[-1]] * 3)  # Shorter pause
-                            current_frames += 3
-            else:
-                response = requests.get(
-                    f"{GIF_BASE_URL}/{word.lower()}.gif", stream=True)
-                if response.status_code == 200:
-                    gif = imageio.get_reader(response.content, '.gif')
-                    word_frames = [resize_frame(frame) for frame in gif]
-                    frames.extend(word_frames)
-                    current_frames += len(word_frames)
-                    if current_frames < max_frames:
-                        frames.extend([word_frames[-1]] * 5)  # Shorter pause
-                        current_frames += 5
-        except Exception as e:
-            print(f"Error processing {word}: {e}")
-            continue
-
-    if not frames:
-        return None
-
-    try:
-        buffer = io.BytesIO()
-        # Lower video quality for smaller size
-        writer = imageio.get_writer(
-            buffer, format='mp4', fps=8,  # Reduced FPS
-            codec='libx264', pixelformat='yuv420p',
-            bitrate='2M',  # Reduced bitrate
-            macro_block_size=None
-        )
-
-        for frame in frames:
-            # Reduce frame size
-            small_frame = Image.fromarray(frame).resize(
-                (320, 240), Image.Resampling.LANCZOS)
-            writer.append_data(np.array(small_frame))
-
-        writer.close()
-        buffer.seek(0)
-        return buffer
-    except Exception as e:
-        print(f"Error creating video: {e}")
-        if 'writer' in locals():
-            writer.close()
-        return None
+CORS(app)
 
 
 def levenshtein_distance(s1, s2):
@@ -276,54 +190,40 @@ def validate_translation(asl_text, vocabulary):
 
 @app.route('/translate', methods=['POST'])
 def translate_text():
-    data = request.get_json()
-    if not data or 'text' not in data:
-        return jsonify({'error': 'Missing text'}), 400
+    try:
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'error': 'Missing text'}), 400
 
-    api_key = os.getenv('GOOGLE_API_KEY')
-    if not api_key:
-        return jsonify({'error': 'API key missing'}), 500
+        api_key = os.getenv('GOOGLE_API_KEY')
+        if not api_key:
+            return jsonify({'error': 'API key missing'}), 500
 
-    text = data['text'].strip()
-    if not text:
-        return jsonify({'error': 'Empty text'}), 400
+        text = data['text'].strip()
+        if not text:
+            return jsonify({'error': 'Empty text'}), 400
 
-    asl_grammar, vocab = generate_sign_grammar(text, api_key)
-    if not asl_grammar:
-        return jsonify({'error': 'Translation failed'}), 500
 
-    validated, fingerspell = validate_translation(asl_grammar, vocab)
+        asl_grammar, vocab = generate_sign_grammar(text, api_key)
+        if not asl_grammar:
+            return jsonify({'error': 'Translation failed'}), 500
 
-    # Generate video and return as stream
-    video_buffer = create_video_from_asl(validated, fingerspell)
-    
-    if video_buffer:
-        try:
-            response = send_file(
-                video_buffer,
-                mimetype='video/mp4',
-                as_attachment=True,
-                download_name=f"sign_{int(time.time())}.mp4"
-            )
-            response.headers['Access-Control-Expose-Headers'] = 'X-Original-Text, X-ASL-Translation, X-Fingerspell-Words'
-            response.headers['X-Original-Text'] = text
-            response.headers['X-ASL-Translation'] = validated
-            response.headers['X-Fingerspell-Words'] = ','.join(fingerspell)
-            return response
-        except Exception as e:
-            print(f"Error sending video: {e}")
-            # Fallback to JSON response if video fails
-            return jsonify(response)
+        validated, fingerspell = validate_translation(asl_grammar, vocab)
 
-    return jsonify(response)
+        return jsonify({
+            'original': text,
+            'translation': validated,
+            'fingerspell': fingerspell,
+            'status': 'success'
+        })
+
+    except Exception as e:
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
 @app.route('/health')
 def health_check():
     return jsonify({'status': 'ok'})
-
-
-
 
 
 if __name__ == '__main__':
