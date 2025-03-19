@@ -137,6 +137,11 @@ def translate_text():
         return jsonify({'error': 'Translation failed'}), 500
 
 
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'}), 200
+
+
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 8080))  # Use Railway’s assigned port
     app.run(debug=False, host='0.0.0.0', port=port)
