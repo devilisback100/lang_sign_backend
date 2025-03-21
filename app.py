@@ -357,21 +357,6 @@ def translate_text():
         return jsonify({'error': 'Translation failed'}), 500
 
 
-@app.route('/proxy/gif/<word>', methods=['GET'])
-def proxy_gif(word):
-    """Proxy endpoint to fetch GIFs and handle CORS."""
-    try:
-        gif_url = f"{os.getenv('GIF_BASE_URL')}/{word}.gif"
-        response = requests.get(gif_url)
-        if response.status_code == 200:
-            return send_file(
-                BytesIO(response.content),
-                mimetype='image/gif',
-                as_attachment=False
-            )
-        return jsonify({'error': 'GIF not found'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/health', methods=['GET'])
